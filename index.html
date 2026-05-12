@@ -61,8 +61,8 @@
     }
 
     .input-row input:focus { border-color: #667eea; }
-
     .input-row input::placeholder { color: #a0aec0; }
+    .input-row input:disabled { background: #f7fafc; }
 
     .btn-add {
       background: linear-gradient(135deg, #667eea, #764ba2);
@@ -78,6 +78,7 @@
 
     .btn-add:hover { opacity: 0.88; }
     .btn-add:active { transform: scale(0.95); }
+    .btn-add:disabled { opacity: 0.5; cursor: default; }
 
     .list {
       list-style: none;
@@ -94,6 +95,13 @@
       padding: 40px 0;
     }
 
+    .loading {
+      text-align: center;
+      color: #a0aec0;
+      font-size: 14px;
+      padding: 40px 0;
+    }
+
     .item {
       display: flex;
       align-items: center;
@@ -101,7 +109,7 @@
       background: #f7fafc;
       border-radius: 12px;
       padding: 14px 16px;
-      transition: background 0.15s;
+      transition: background 0.15s, opacity 0.2s;
       animation: slideIn 0.2s ease;
     }
 
@@ -111,6 +119,7 @@
     }
 
     .item.checked { background: #f0fff4; }
+    .item.busy { opacity: 0.5; pointer-events: none; }
 
     .item-check {
       width: 22px;
@@ -194,112 +203,197 @@
 
     .btn-clear:hover { background: #fff5f5; }
     .btn-clear:disabled { opacity: 0.4; cursor: default; }
+
+    .error-bar {
+      background: #fff5f5;
+      color: #c53030;
+      font-size: 13px;
+      padding: 10px 20px;
+      display: none;
+    }
+    .error-bar.visible { display: block; }
   </style>
 </head>
 <body>
   <div class="card">
     <div class="card-header">
       <h1>🛒 쇼핑 리스트</h1>
-      <p class="summary" id="summary">항목이 없습니다</p>
+      <p class="summary" id="summary">불러오는 중...</p>
     </div>
 
+    <div class="error-bar" id="errorBar"></div>
+
     <div class="input-row">
-      <input id="input" type="text" placeholder="아이템 추가..." maxlength="60" />
-      <button class="btn-add" id="btnAdd" title="추가">+</button>
+      <input id="input" type="text" placeholder="아이템 추가..." maxlength="60" disabled />
+      <button class="btn-add" id="btnAdd" title="추가" disabled>+</button>
     </div>
 
     <ul class="list" id="list"></ul>
 
     <div class="footer">
       <span id="footerInfo"></span>
-      <button class="btn-clear" id="btnClear">완료 항목 삭제</button>
+      <button class="btn-clear" id="btnClear" disabled>완료 항목 삭제</button>
     </div>
   </div>
 
-  <script>
-    const input   = document.getElementById('input');
-    const btnAdd  = document.getElementById('btnAdd');
-    const list    = document.getElementById('list');
-    const summary = document.getElementById('summary');
-    const footerInfo = document.getElementById('footerInfo');
-    const btnClear   = document.getElementById('btnClear');
+  <script type="module">
+    import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm'
 
-    let items = JSON.parse(localStorage.getItem('shopping') || '[]');
+    const SUPABASE_URL  = 'https://svqkralmewttprashjfr.supabase.co'
+    const SUPABASE_KEY  = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InN2cWtyYWxtZXd0dHByYXNoamZyIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzg1NjYzNTksImV4cCI6MjA5NDE0MjM1OX0.B4STRvNkMsUYPhHljdYDs7J6NHI0hb7ZwL2oljAj0RU'
+    const db = createClient(SUPABASE_URL, SUPABASE_KEY)
 
-    function save() {
-      localStorage.setItem('shopping', JSON.stringify(items));
-    }
+    const input      = document.getElementById('input')
+    const btnAdd     = document.getElementById('btnAdd')
+    const list       = document.getElementById('list')
+    const summary    = document.getElementById('summary')
+    const footerInfo = document.getElementById('footerInfo')
+    const btnClear   = document.getElementById('btnClear')
+    const errorBar   = document.getElementById('errorBar')
 
-    function render() {
-      list.innerHTML = '';
+    let items = []
 
-      if (items.length === 0) {
-        list.innerHTML = '<li class="empty">아이템을 추가해 보세요 ✏️</li>';
-      } else {
-        items.forEach((item, i) => {
-          const li = document.createElement('li');
-          li.className = 'item' + (item.checked ? ' checked' : '');
-
-          li.innerHTML = `
-            <div class="item-check" data-i="${i}" title="완료 토글"></div>
-            <span class="item-text">${escape(item.text)}</span>
-            <button class="btn-delete" data-i="${i}" title="삭제">✕</button>
-          `;
-
-          list.appendChild(li);
-        });
-      }
-
-      const total   = items.length;
-      const checked = items.filter(it => it.checked).length;
-
-      summary.textContent = total === 0
-        ? '항목이 없습니다'
-        : `총 ${total}개 · 완료 ${checked}개`;
-
-      footerInfo.textContent = total > 0 ? `${total - checked}개 남음` : '';
-      btnClear.disabled = checked === 0;
+    function showError(msg) {
+      errorBar.textContent = msg
+      errorBar.classList.add('visible')
+      setTimeout(() => errorBar.classList.remove('visible'), 4000)
     }
 
     function escape(str) {
-      return str.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+      return str.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;')
     }
 
-    function addItem() {
-      const text = input.value.trim();
-      if (!text) { input.focus(); return; }
-      items.unshift({ text, checked: false });
-      save();
-      render();
-      input.value = '';
-      input.focus();
+    function render() {
+      list.innerHTML = ''
+
+      if (items.length === 0) {
+        list.innerHTML = '<li class="empty">아이템을 추가해 보세요 ✏️</li>'
+      } else {
+        items.forEach(item => {
+          const li = document.createElement('li')
+          li.className = 'item' + (item.checked ? ' checked' : '')
+          li.dataset.id = item.id
+          li.innerHTML = `
+            <div class="item-check" title="완료 토글"></div>
+            <span class="item-text">${escape(item.text)}</span>
+            <button class="btn-delete" title="삭제">✕</button>
+          `
+          list.appendChild(li)
+        })
+      }
+
+      const total   = items.length
+      const checked = items.filter(it => it.checked).length
+
+      summary.textContent = total === 0
+        ? '항목이 없습니다'
+        : `총 ${total}개 · 완료 ${checked}개`
+
+      footerInfo.textContent = total > 0 ? `${total - checked}개 남음` : ''
+      btnClear.disabled = checked === 0
+    }
+
+    function setLoading(on) {
+      input.disabled  = on
+      btnAdd.disabled = on
+    }
+
+    async function loadItems() {
+      list.innerHTML = '<li class="loading">불러오는 중...</li>'
+      const { data, error } = await db
+        .from('shopping_items')
+        .select('*')
+        .order('created_at', { ascending: false })
+
+      if (error) { showError('데이터를 불러오지 못했습니다.'); return }
+      items = data
+      setLoading(false)
+      render()
+    }
+
+    async function addItem() {
+      const text = input.value.trim()
+      if (!text) { input.focus(); return }
+
+      setLoading(true)
+      const { data, error } = await db
+        .from('shopping_items')
+        .insert({ text, checked: false })
+        .select()
+        .single()
+
+      setLoading(false)
+      if (error) { showError('추가에 실패했습니다.'); return }
+
+      items.unshift(data)
+      render()
+      input.value = ''
+      input.focus()
+    }
+
+    async function toggleItem(id) {
+      const item = items.find(it => it.id === id)
+      if (!item) return
+
+      const li = list.querySelector(`[data-id="${id}"]`)
+      if (li) li.classList.add('busy')
+
+      const { error } = await db
+        .from('shopping_items')
+        .update({ checked: !item.checked })
+        .eq('id', id)
+
+      if (error) { showError('수정에 실패했습니다.'); if (li) li.classList.remove('busy'); return }
+
+      item.checked = !item.checked
+      render()
+    }
+
+    async function deleteItem(id) {
+      const li = list.querySelector(`[data-id="${id}"]`)
+      if (li) li.classList.add('busy')
+
+      const { error } = await db
+        .from('shopping_items')
+        .delete()
+        .eq('id', id)
+
+      if (error) { showError('삭제에 실패했습니다.'); if (li) li.classList.remove('busy'); return }
+
+      items = items.filter(it => it.id !== id)
+      render()
+    }
+
+    async function clearChecked() {
+      const ids = items.filter(it => it.checked).map(it => it.id)
+      if (!ids.length) return
+
+      btnClear.disabled = true
+      const { error } = await db
+        .from('shopping_items')
+        .delete()
+        .in('id', ids)
+
+      if (error) { showError('삭제에 실패했습니다.'); render(); return }
+
+      items = items.filter(it => !it.checked)
+      render()
     }
 
     list.addEventListener('click', e => {
-      const check = e.target.closest('.item-check');
-      const del   = e.target.closest('.btn-delete');
+      const li  = e.target.closest('.item')
+      if (!li) return
+      const id  = li.dataset.id
 
-      if (check) {
-        const i = +check.dataset.i;
-        items[i].checked = !items[i].checked;
-        save(); render();
-      }
-      if (del) {
-        const i = +del.dataset.i;
-        items.splice(i, 1);
-        save(); render();
-      }
-    });
+      if (e.target.closest('.item-check'))  toggleItem(id)
+      if (e.target.closest('.btn-delete'))  deleteItem(id)
+    })
 
-    btnAdd.addEventListener('click', addItem);
-    input.addEventListener('keydown', e => { if (e.key === 'Enter') addItem(); });
+    btnAdd.addEventListener('click', addItem)
+    input.addEventListener('keydown', e => { if (e.key === 'Enter') addItem() })
+    btnClear.addEventListener('click', clearChecked)
 
-    btnClear.addEventListener('click', () => {
-      items = items.filter(it => !it.checked);
-      save(); render();
-    });
-
-    render();
+    loadItems()
   </script>
 </body>
 </html>
